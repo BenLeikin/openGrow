@@ -1,0 +1,17 @@
+[Unit]
+Description=openGardener integrated logger (sensors + valve + auto-water)
+After=multi-user.target
+
+[Service]
+Type=simple
+User=ben
+WorkingDirectory=/home/ben
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/ben/garden/bin/python /home/ben/opengardener_logger.py
+Restart=always
+RestartSec=15
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

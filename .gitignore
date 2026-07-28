@@ -1,0 +1,58 @@
+# openGardener .gitignore  (repo root is /home/ben)
+#
+# This home directory holds SSH keys, shell history, pip caches, and other
+# secrets that must NEVER be committed. Enumerating things to exclude is
+# fragile -- one miss leaks a secret. So we invert it: ignore EVERYTHING,
+# then re-include only the project files by name.
+#
+# To add a new project file to the repo, add a matching "!name" line below.
+
+# 1) ignore everything, including dotfiles, at the repo root
+/*
+
+# 2) re-include only the project files
+!.gitignore
+!README.md
+
+# python modules
+!discord_alert.py
+!garden_bringup.py
+!garden_buttons.py
+!opengardener_alerts.py
+!opengardener_autowater.py
+!opengardener_buttons.py
+!opengardener_db.py
+!opengardener_initdb.py
+!opengardener_log.py
+!opengardener_logger.py
+!opengardener_valve.py
+!opengardener_weather.py
+!opengardener_web.py
+
+# systemd units
+!opengardener-logger.service
+!opengardener-web.service
+!opengardener-backup.service
+!opengardener-backup.timer
+
+# scripts
+!backup-opengardener.sh
+!fetch-vendor.sh
+
+# front-end directories (re-include the dirs, then prune junk inside them)
+!static/
+!templates/
+
+# 3) prune runtime/secret things even inside re-included dirs
+static/vendor/
+__pycache__/
+*.pyc
+
+# belt-and-suspenders: never commit these even if a rule above would allow them
+.discord_webhook
+config.json
+*.htpasswd*
+*.db
+*.db-wal
+*.db-shm
+*.csv

@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>openGardener</title>
+<link rel="stylesheet" href="/static/vendor/fonts/fonts.css">
+<script src="/static/vendor/chart.umd.min.js"></script>
+<script src="/static/vendor/luxon.min.js"></script>
+<script src="/static/vendor/chartjs-adapter-luxon.umd.min.js"></script>
+<script src="/static/vendor/hammer.min.js"></script>
+<script src="/static/vendor/chartjs-plugin-zoom.min.js"></script>
+<script src="/static/vendor/chartjs-plugin-annotation.min.js"></script>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header class="masthead">
+  <div class="mark">
+    <span class="glyph">&#127827;</span>
+    <div>
+      <h1>openGardener</h1>
+      <p class="live-clock" id="live-clock">&mdash;</p>
+    </div>
+  </div>
+  <div class="mini-forecast" id="mini-forecast"></div>
+  <div class="clock">
+    <span id="median-big">--</span>
+    <span class="clock-label">median soil<br>moisture</span>
+  </div>
+</header>
+
+<main>
+  <section class="beds" id="beds">
+    <!-- variety rows injected here -->
+    <p class="loading">Reading the beds&hellip;</p>
+  </section>
+
+  <section class="ambient" id="ambient"></section>
+
+  <section class="charts">
+    <div class="charts-head">
+      <h2 class="eyebrow">Trends</h2>
+      <div class="range-switch" id="range-switch">
+        <button data-range="1h">1h</button>
+        <button data-range="6h">6h</button>
+        <button data-range="24h" class="active">24h</button>
+        <button data-range="7d">7d</button>
+        <button data-range="30d">30d</button>
+      </div>
+    </div>
+    <div class="chart-grid" id="chart-grid"></div>
+  </section>
+
+  <section class="watering">
+    <h2 class="eyebrow">Watering</h2>
+    <div class="controls" id="controls">
+      <div class="control-row">
+        <button class="water-btn" id="water-btn">Water now</button>
+        <div class="auto-toggle">
+          <label class="switch">
+            <input type="checkbox" id="auto-toggle">
+            <span class="slider"></span>
+          </label>
+          <span class="auto-label">Auto-water <b id="auto-state">off</b></span>
+        </div>
+        <div class="threshold-edit">
+          <span>Threshold</span>
+          <input type="number" id="threshold-input" min="0" max="100" step="1">
+          <span>%</span>
+          <button class="thr-save" id="thr-save">set</button>
+        </div>
+      </div>
+      <div class="control-note" id="control-note"></div>
+    </div>
+    <div class="water-status" id="water-status"></div>
+    <table class="water-log" id="water-log"></table>
+  </section>
+  <section class="summaries">
+    <h2 class="eyebrow">Records &amp; summaries</h2>
+    <div class="summary-grid" id="summary-grid"></div>
+  </section>
+
+  <section class="device">
+    <h2 class="eyebrow">Device</h2>
+    <div class="hwstats" id="hwstats"></div>
+    <div class="device-controls">
+      <button class="reboot-btn" id="reboot-btn">Reboot Pi</button>
+      <span class="device-note" id="device-note"></span>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <span id="stamp">&mdash;</span>
+  <span class="dot" id="live-dot"></span>
+</footer>
+
+<script src="/static/app.js"></script>
+<script src="/static/forecast.js"></script>
+<script src="/static/charts.js"></script>
+</body>
+</html>

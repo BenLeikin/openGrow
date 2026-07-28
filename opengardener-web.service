@@ -1,0 +1,35 @@
+# openGardener dashboard web service (Pi side).
+# Runs the Flask app under gunicorn, bound to the LAN so the nginx box at
+# the web server can proxy to it. Read-only in this phase.
+#
+# Install:
+#   ~/garden/bin/pip install gunicorn flask
+#   sudo cp opengardener-web.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now opengardener-web.service
+#   systemctl status opengardener-web.service
+
+[Unit]
+Description=openGardener dashboard (Flask/gunicorn)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ben
+WorkingDirectory=/home/ben
+# 2 workers is plenty for a home dashboard on a Pi 3B; more would just eat RAM.
+# Bind to all interfaces so the nginx box can reach it; nginx is the only thing
+# that should, enforced at the network layer.
+ExecStart=/home/ben/garden/bin/gunicorn \
+    --workers 2 \
+    --bind 0.0.0.0:5000 \
+    --timeout 30 \
+    opengardener_web:app
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
