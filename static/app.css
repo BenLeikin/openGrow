@@ -926,3 +926,100 @@ footer {
   .dot { animation: none; }
   .bar span { transition: none; }
 }
+
+/* ---------------------------------------------------------------- *
+ * Probe calibration panel
+ * ---------------------------------------------------------------- */
+.calibration { margin-bottom: 2.2rem; }
+.cal-wrap > summary {
+  display: flex; align-items: baseline; gap: 0.7rem;
+  cursor: pointer; list-style: none;
+  border-bottom: 1px solid var(--line); padding-bottom: 0.3rem;
+}
+.cal-wrap > summary::-webkit-details-marker { display: none; }
+.cal-wrap > summary::after {
+  content: "\25be"; margin-left: auto; color: var(--soil);
+  transition: transform 0.15s ease;
+}
+.cal-wrap[open] > summary::after { transform: rotate(180deg); }
+.cal-wrap > summary .eyebrow { border: none; padding: 0; }
+.cal-sub {
+  font-family: var(--font-mono); font-size: 0.72rem; color: var(--ink-soft);
+}
+.cal-sub.bad { color: var(--ripe); }
+.cal-hint {
+  font-size: 0.8rem; color: var(--ink-soft); line-height: 1.5;
+  margin: 0.8rem 0 1rem; max-width: 62ch;
+}
+.cal-bed { margin-bottom: 1.2rem; }
+.cal-bed-head {
+  font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--soil); margin-bottom: 0.4rem;
+}
+.cal-row {
+  display: grid; gap: 0.5rem 0.9rem; align-items: center;
+  grid-template-columns: minmax(9rem, 1fr) auto auto auto;
+  padding: 0.6rem 0.7rem; border: 1px solid var(--line); border-radius: 6px;
+  background: rgba(255,255,255,0.35); margin-bottom: 0.45rem;
+}
+.cal-row.cal-off { opacity: 0.62; }
+.cal-id b { font-size: 0.92rem; }
+.cal-meta {
+  display: block; font-family: var(--font-mono); font-size: 0.66rem;
+  color: var(--ink-soft);
+}
+.cal-live { display: flex; flex-direction: column; }
+.cal-volts {
+  font-family: var(--font-mono); font-size: 1rem; color: var(--ink);
+}
+.cal-age { font-family: var(--font-mono); font-size: 0.66rem; color: var(--leaf); }
+.cal-volts.stale, .cal-age.stale { color: var(--ripe); }
+.cal-anchors { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.cal-actions { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.cal-btn {
+  font-family: var(--font-body); font-size: 0.78rem; font-weight: 600;
+  padding: 0.32rem 0.7rem; border: 1px solid var(--line); border-radius: 3px;
+  background: var(--paper); color: var(--ink); cursor: pointer;
+}
+.cal-btn:hover:not(:disabled) { background: var(--paper-2); }
+.cal-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.cal-tc {
+  grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center;
+  gap: 0.35rem; padding-top: 0.4rem; border-top: 1px dashed var(--line);
+}
+.cal-tclabel {
+  font-family: var(--font-mono); font-size: 0.68rem; color: var(--soil);
+  letter-spacing: 0.08em; text-transform: uppercase;
+}
+.cal-tc input[type=number] {
+  width: 4.2rem; text-align: right; font-family: var(--font-mono);
+  font-size: 0.78rem; padding: 0.22rem 0.35rem; border: 1px solid var(--line);
+  border-radius: 3px; background: var(--paper); color: var(--ink);
+  -moz-appearance: textfield; appearance: textfield;
+}
+.cal-tc input[type=number]::-webkit-outer-spin-button,
+.cal-tc input[type=number]::-webkit-inner-spin-button {
+  -webkit-appearance: none; margin: 0;
+}
+.cal-tc .u { font-family: var(--font-mono); font-size: 0.68rem; color: var(--ink-soft); }
+.schip.chip-bad { border-color: var(--ripe); }
+.schip.chip-bad b { color: var(--ripe); }
+.cal-path {
+  font-family: var(--font-mono); font-size: 0.66rem; color: var(--ink-soft);
+  margin: 0.4rem 0 0;
+}
+.cal-state {
+  grid-column: 1 / -1; font-family: var(--font-mono); font-size: 0.68rem;
+  color: var(--ink-soft);
+}
+.cal-state.ok { color: var(--leaf); }
+.cal-state.bad { color: var(--ripe); font-weight: 600; }
+#cal-info {
+  display: block; margin-top: 0.5rem;
+  font-family: var(--font-mono); font-size: 0.72rem; color: var(--leaf);
+}
+#cal-info.bad { color: var(--ripe); }
+@media (max-width: 700px) {
+  .cal-row { grid-template-columns: 1fr auto; }
+  .cal-anchors, .cal-actions { grid-column: 1 / -1; }
+}

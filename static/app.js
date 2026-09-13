@@ -588,6 +588,9 @@ function sumCard(label, big, sub) {
 
 // map a sensor_key to its variety label using the status data if present
 let _sensorLabels = {};
+// Label and bed group per sensor key, kept separate from the combined
+// display string above because the calibration panel groups rows by bed.
+let _sensorMeta = {};
 function labelFor(key) { return _sensorLabels[key] || key; }
 
 window.addEventListener("load", () => {
@@ -704,7 +707,11 @@ async function tick() {
     const d = await r.json();
 
     const sensorMap = {};
-    for (const s of d.sensors) { sensorMap[s.key] = s; _sensorLabels[s.key] = `${s.label} (${s.group})`; }
+    for (const s of d.sensors) {
+      sensorMap[s.key] = s;
+      _sensorLabels[s.key] = `${s.label} (${s.group})`;
+      _sensorMeta[s.key] = { label: s.label, group: s.group };
+    }
 
     // Expose threshold and watering events for the chart layer to draw.
     window.ogThreshold = d.config.threshold_pct;
@@ -729,3 +736,234 @@ async function tick() {
 
 tick();
 setInterval(tick, REFRESH_MS);
+
+/* ------------------------------------------------------------------ *
+ * Probe calibration
+ *
+ * Drives the calibration API that already lives in opengardener_ingest.py:
+ *   GET  /api/calibration                 -> per-sensor dry/wet/temp_comp,
+ *                                            latest raw volts and timestamp
+ *   POST /api/calibration/capture         -> {sensor_key, point}
+ *   POST /api/calibration/temp_comp       -> {sensor_key, coeff, ref_f}
+ *
+ * That API keys on sensor_key (soil0..soil5), not planter id, so names come
+ * from the sensor registry in /api/status. Nothing here touches hardware: the
+ * server records whatever raw voltage was last written to the readings table,
+ * which is why every row shows how old that voltage is. Both beds report from
+ * sleeping nodes, so a capture taken against a ten-minute-old voltage is a
+ * capture of where the probe was ten minutes ago.
+ * ------------------------------------------------------------------ */
+
+const CAL_POLL_MS = 15000;
+// Nodes deep-sleep ~600s between posts. Three sleeps of slack before a
+// voltage is treated as too old to anchor a calibration to.
+const CAL_MAX_AGE_S = 1800;
+
+let calTimer = null;
+let calBusy = false;
+
+function calAge(ts) {
+  if (!ts) return null;
+  const t = Date.parse(ts.replace(" ", "T"));
+  if (isNaN(t)) return null;
+  return Math.max(0, Math.round((Date.now() - t) / 1000));
+}
+
+function calAgeText(age) {
+  if (age === null) return "no reading";
+  if (age < 90) return age + "s ago";
+  if (age < 5400) return Math.round(age / 60) + "m ago";
+  return Math.round(age / 3600) + "h ago";
+}
+
+function calStateText(s) {
+  if (s.valid) return "calibrated";
+  if (s.dry === null && s.wet === null) return "not calibrated";
+  if (s.dry === null) return "wet captured, dry missing";
+  if (s.wet === null) return "dry captured, wet missing";
+  return "inverted: dry must read higher than wet";
+}
+
+function calRowHTML(key, s, label) {
+  const age = calAge(s.latest_ts);
+  const stale = (age === null || age > CAL_MAX_AGE_S);
+  const v = (s.latest_volts === null || s.latest_volts === undefined)
+    ? "\u2014" : s.latest_volts.toFixed(4) + "V";
+  // Unit only when there is a number; "\u2014V" reads like a broken value.
+  const anchor = x => (x === null || x === undefined)
+    ? "\u2014" : Number(x).toFixed(3) + '<span class="u">V</span>';
+  const pct = (s.would_read_pct === null || s.would_read_pct === undefined)
+    ? "\u2014" : s.would_read_pct + "%";
+  // A percentage outside 0-100 means this voltage sits past one of the
+  // anchors, so the anchor was captured in the wrong condition.
+  const pctBad = (s.would_read_pct !== null && s.would_read_pct !== undefined
+                  && (s.would_read_pct < 0 || s.would_read_pct > 100));
+  const tc = s.temp_comp || {};
+  return `
+    <div class="cal-row" data-key="${key}">
+      <div class="cal-id">
+        <b>${label}</b>
+        <span class="cal-meta">${key}</span>
+      </div>
+      <div class="cal-live">
+        <span class="cal-volts${stale ? " stale" : ""}">${v}</span>
+        <span class="cal-age${stale ? " stale" : ""}">${calAgeText(age)}</span>
+      </div>
+      <div class="cal-anchors">
+        <span class="schip">dry <b>${anchor(s.dry)}</b></span>
+        <span class="schip">wet <b>${anchor(s.wet)}</b></span>
+        <span class="schip${pctBad ? " chip-bad" : ""}">reads <b>${pct}</b></span>
+      </div>
+      <div class="cal-actions">
+        <button type="button" class="cal-btn" data-act="dry"
+          ${stale ? "disabled" : ""}>Capture dry</button>
+        <button type="button" class="cal-btn" data-act="wet"
+          ${stale ? "disabled" : ""}>Capture wet</button>
+      </div>
+      <div class="cal-tc">
+        <span class="cal-tclabel">temp comp</span>
+        <input type="number" class="cal-coeff" step="0.01" min="0" max="1"
+          value="${tc.coeff === undefined || tc.coeff === null ? "" : tc.coeff}"
+          aria-label="${label} temperature coefficient">
+        <span class="u">%/&deg;F @</span>
+        <input type="number" class="cal-ref" step="1"
+          value="${tc.ref_f === undefined || tc.ref_f === null ? 70 : tc.ref_f}"
+          aria-label="${label} reference temperature">
+        <span class="u">&deg;F</span>
+        <button type="button" class="cal-btn" data-act="tc">Set</button>
+      </div>
+      <div class="cal-state ${s.valid ? "ok" : "bad"}">${calStateText(s)}</div>
+    </div>`;
+}
+
+function renderCalibration(d) {
+  const grid = document.getElementById("cal-grid");
+  if (!grid) return;
+  const sensors = d.sensors || {};
+  const keys = Object.keys(sensors).sort();
+  if (!keys.length) {
+    grid.innerHTML = '<p class="loading">no soil sensors reported</p>';
+    return;
+  }
+
+  // Group by bed using the sensor registry's group, so the rows follow the
+  // same A/B split as the rest of the dashboard rather than key order.
+  const beds = {};
+  for (const k of keys) {
+    const meta = _sensorMeta[k] || {};
+    const bed = meta.group || "?";
+    (beds[bed] = beds[bed] || []).push([k, sensors[k], meta.label || k]);
+  }
+
+  grid.innerHTML = Object.keys(beds).sort().map(b => `
+    <div class="cal-bed">
+      <div class="cal-bed-head">Bed ${b}</div>
+      ${beds[b].map(([k, s, label]) => calRowHTML(k, s, label)).join("")}
+    </div>`).join("");
+
+  const sub = document.getElementById("cal-sub");
+  if (sub) {
+    const good = keys.filter(k => sensors[k].valid).length;
+    sub.textContent = `${good}/${keys.length} calibrated`;
+    sub.classList.toggle("bad", good < keys.length);
+  }
+
+  grid.querySelectorAll(".cal-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const row = btn.closest(".cal-row");
+      const key = row.dataset.key;
+      if (btn.dataset.act === "tc") {
+        const coeff = row.querySelector(".cal-coeff").value;
+        const ref = row.querySelector(".cal-ref").value;
+        calPost("/api/calibration/temp_comp",
+                { sensor_key: key, coeff: Number(coeff), ref_f: Number(ref) });
+      } else {
+        calPost("/api/calibration/capture",
+                { sensor_key: key, point: btn.dataset.act });
+      }
+    });
+  });
+
+  const path = document.getElementById("cal-path");
+  if (path && d.path) path.textContent = d.path;
+}
+
+async function calPost(url, body) {
+  if (calBusy) return;
+  const info = document.getElementById("cal-info");
+  calBusy = true;
+  if (info) { info.classList.remove("bad"); info.textContent = "saving\u2026"; }
+  try {
+    const r = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (info) {
+      if (j.ok && j.point) {
+        info.textContent = `${j.sensor_key} ${j.point} = ${j.volts}V`
+          + (j.complete ? "" : " (other point still missing)");
+      } else if (j.ok) {
+        info.textContent = `${body.sensor_key} temp comp set`
+          + (j.warning ? ` \u2014 ${j.warning}` : "");
+        if (j.warning) info.classList.add("bad");
+      } else {
+        // The server refuses an inverted pair outright, so this is where a
+        // swapped dry/wet capture is reported. Keep the full message.
+        info.textContent = j.error || ("HTTP " + r.status);
+        info.classList.add("bad");
+      }
+    }
+  } catch (e) {
+    if (info) { info.textContent = "request failed"; info.classList.add("bad"); }
+  } finally {
+    calBusy = false;
+    loadCalibration();
+  }
+}
+
+async function loadSensorMeta() {
+  // The calibration panel can open before the first dashboard tick has run,
+  // and without the registry every row would be titled "soil3" and filed
+  // under bed "?". One extra fetch, only when the map is still empty.
+  try {
+    const r = await fetch("/api/status", { cache: "no-store" });
+    const d = await r.json();
+    for (const s of (d.sensors || [])) {
+      _sensorMeta[s.key] = { label: s.label, group: s.group };
+    }
+  } catch (e) { /* rows fall back to the sensor key */ }
+}
+
+async function loadCalibration() {
+  try {
+    if (!Object.keys(_sensorMeta).length) await loadSensorMeta();
+    const r = await fetch("/api/calibration", { cache: "no-store" });
+    if (!r.ok) throw new Error("status " + r.status);
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || "not ok");
+    renderCalibration(d);
+  } catch (e) {
+    const grid = document.getElementById("cal-grid");
+    if (grid) grid.innerHTML =
+      '<p class="loading">calibration unavailable: ' + e.message + "</p>";
+  }
+}
+
+function initCalibration() {
+  const wrap = document.getElementById("cal-wrap");
+  if (!wrap) return;
+  // Only poll while the panel is open. The live voltage has to move faster
+  // than the 60s dashboard refresh or "watch it while the probe soaks" is
+  // guesswork; closed, this costs nothing.
+  wrap.addEventListener("toggle", () => {
+    clearInterval(calTimer);
+    if (wrap.open) {
+      loadCalibration();
+      calTimer = setInterval(loadCalibration, CAL_POLL_MS);
+    }
+  });
+  loadCalibration();   // fill the summary line without opening the panel
+}
+window.addEventListener("load", initCalibration);

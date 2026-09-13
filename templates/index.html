@@ -11,7 +11,7 @@
 <script src="/static/vendor/hammer.min.js"></script>
 <script src="/static/vendor/chartjs-plugin-zoom.min.js"></script>
 <script src="/static/vendor/chartjs-plugin-annotation.min.js"></script>
-<link rel="stylesheet" href="/static/app.css">
+<link rel="stylesheet" href="/static/app.css?v=20260913">
 </head>
 <body>
 <header class="masthead">
@@ -98,6 +98,30 @@
     <div class="summary-grid" id="summary-grid"></div>
   </section>
 
+  <section class="calibration">
+    <details class="cal-wrap" id="cal-wrap">
+      <summary>
+        <span class="eyebrow">Probe calibration</span>
+        <span class="cal-sub" id="cal-sub">&mdash;</span>
+      </summary>
+      <p class="cal-hint">
+        Anchors are taken from the last raw voltage the probe reported, not from
+        a live read. Capture <b>dry</b> with the probe in air, and <b>wet</b> at
+        field capacity: watered to runoff, then drained about 30 minutes.
+        Capturing wet while it is still draining puts 100&percnt; above field
+        capacity and every later reading looks drier than it is. These probes
+        are inverted, so dry must be the HIGHER voltage; a swapped pair is
+        refused outright. Both beds report from sleeping nodes, so wait for a
+        fresh voltage before capturing.
+      </p>
+      <div class="cal-grid" id="cal-grid">
+        <p class="loading">Reading calibration&hellip;</p>
+      </div>
+      <span id="cal-info" role="status"></span>
+      <p class="cal-path">writes <code id="cal-path">&mdash;</code></p>
+    </details>
+  </section>
+
   <section class="nodes" id="nodes"></section>
 
   <section class="device">
@@ -115,8 +139,8 @@
   <span class="dot" id="live-dot"></span>
 </footer>
 
-<script src="/static/app.js"></script>
-<script src="/static/forecast.js"></script>
-<script src="/static/charts.js"></script>
+<script src="/static/app.js?v=20260913"></script>
+<script src="/static/forecast.js?v=20260913"></script>
+<script src="/static/charts.js?v=20260913"></script>
 </body>
 </html>

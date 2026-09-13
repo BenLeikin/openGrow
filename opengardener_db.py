@@ -199,6 +199,65 @@ def set_config_value(key, value):
         )
 
 
+# ---------- planters (config-driven planter layout) ----------
+# Planter count, names, and probe mapping live in the `planters` table (see
+# opengardener_migrate_planters.py) rather than hardcoded constants, so the UI
+# can rename planters, enable/disable them, and change the count.
+
+def get_planters(bed=None, enabled_only=False):
+    """Return planter rows ordered by bed then position. Each row: id, bed,
+    position, name, soil_key, temp_key, ads_index, ads_channel, ds18b20,
+    enabled."""
+    q = "SELECT * FROM planters"
+    clauses, args = [], []
+    if bed:
+        clauses.append("bed = ?")
+        args.append(bed)
+    if enabled_only:
+        clauses.append("enabled = 1")
+    if clauses:
+        q += " WHERE " + " AND ".join(clauses)
+    q += " ORDER BY bed, position"
+    with _conn() as c:
+        return [dict(r) for r in c.execute(q, args).fetchall()]
+
+
+def get_beds(enabled_only=True):
+    """Return an ordered dict-like list of beds, each with its planters, built
+    from the planters table. Shape mirrors what the old hardcoded BEDS gave the
+    frontend."""
+    beds = {}
+    for p in get_planters(enabled_only=enabled_only):
+        b = beds.setdefault(p["bed"], {"label": f"Bed {p['bed']}",
+                                       "varieties": []})
+        b["varieties"].append({
+            "id": f"planter_{p['id']}",
+            "planter_id": p["id"],
+            "label": p["name"],
+            "soil": p["soil_key"],
+            "temp": p["temp_key"],
+        })
+    return beds
+
+
+def rename_planter(planter_id, name):
+    with _conn() as c:
+        c.execute("UPDATE planters SET name = ? WHERE id = ?;",
+                  (str(name)[:60], int(planter_id)))
+
+
+def set_planter_enabled(planter_id, enabled):
+    with _conn() as c:
+        c.execute("UPDATE planters SET enabled = ? WHERE id = ?;",
+                  (1 if enabled else 0, int(planter_id)))
+
+
+def set_planter_serial(planter_id, ds18b20):
+    with _conn() as c:
+        c.execute("UPDATE planters SET ds18b20 = ? WHERE id = ?;",
+                  (ds18b20, int(planter_id)))
+
+
 # ---------- watering events ----------
 
 def start_watering_event(trigger, median_at_trigger):

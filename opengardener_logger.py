@@ -29,6 +29,7 @@ from datetime import datetime
 # hardware setup imports, which is exactly what we want here.
 import garden_bringup as gb
 import opengardener_db as db
+import opengardener_cal as ogcal
 from opengardener_log import log_cycle, c_to_f
 from opengardener_valve import ValveController
 from opengardener_autowater import evaluate as evaluate_autowater
@@ -214,12 +215,14 @@ def main():
         for p in problems:
             log(f"! {p}")
         cal = gb.load_cal()
+        cal_mtime = ogcal.mtime()
         probes = gb.list_ds18b20()
         log(f"sensors up: {len(probes)} temp probes, cal keys {list(cal.keys())}")
     else:
         i2c = None
         dev = {"ads": [], "bme": [], "bh": []}
         cal = {}
+        cal_mtime = ogcal.mtime()
         probes = []
         log("local sensors disabled; readings arrive from wireless nodes")
 
@@ -271,6 +274,20 @@ def main():
         while _running:
             cycle_start = time.monotonic()
             ts = datetime.now().isoformat(timespec="seconds")
+
+            # ---- pick up a calibration captured from the dashboard ----
+            # The web app writes garden_calibration.json when someone presses
+            # capture dry/wet. Without this the new anchors would not apply
+            # until the next logger restart, so the UI would look like it had
+            # done nothing. Cheap stat() per cycle, reload only on change.
+            try:
+                m = ogcal.mtime()
+                if m != cal_mtime:
+                    cal_mtime = m
+                    cal = gb.load_cal()
+                    log(f"calibration reloaded, keys {sorted(cal.keys())}")
+            except Exception as e:
+                log(f"calibration reload failed: {e}")
 
             if LOCAL_SENSORS:
                 # ---- periodically re-probe for missing I2C devices ----

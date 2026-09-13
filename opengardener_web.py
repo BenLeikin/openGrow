@@ -40,26 +40,6 @@ app.register_blueprint(ingest_bp)
 # pinned-rail failures seen during bring-up.
 SOIL_BAND = (-5.0, 105.0)
 
-# Sensor keys fed by a wireless node rather than by the wired logger. The
-# sensors table records what a sensor measures, not how the reading arrives,
-# so the kind alone cannot distinguish them -- soil3 and soil0 are both
-# kind='soil_moisture' even though one arrives every 60s over I2C and the
-# other every ~10min over WiFi. These keys get the longer staleness window.
-WIRELESS_KEYS = {
-    "soil3", "soil4", "soil5",
-    "temp3", "temp4", "temp5",
-    "bme1", "lux1",
-}
-
-# Wired sensors are read every 60s, so 10 minutes of silence means something
-# is actually wrong. Wireless nodes deep-sleep ~10min between check-ins and
-# their wake timer runs off an RC oscillator that drifts a percent or two (and
-# drifts further in the cold), so they are routinely a little late. 25 minutes
-# tolerates two missed check-ins before the tile goes grey, which stops the
-# offline flapping without hiding a genuinely dead node for long.
-STALE_WIRED = timedelta(minutes=10)
-STALE_WIRELESS = timedelta(minutes=25)
-
 
 @app.route("/")
 def index():
@@ -82,6 +62,7 @@ def api_status():
 
     # build per-sensor view with online/offline
     now = datetime.now()
+    stale_after = timedelta(minutes=10)
     sensor_view = []
     for s in sensors:
         key = s["sensor_key"]
@@ -101,18 +82,19 @@ def api_status():
             metrics = ["battery", "rssi", "errors"]
         else:
             metrics = ["value"]
-
-        stale_after = (STALE_WIRELESS
-                       if s["kind"] == "node" or key in WIRELESS_KEYS
-                       else STALE_WIRED)
-
+        # Nodes sleep ~10 min between check-ins and their deep-sleep timer runs
+        # off a drifting RC oscillator, so they're routinely a little late. A
+        # wider staleness window tolerates a couple of missed POSTs without
+        # false-offline flapping; wired sensors keep the tight 10-min window.
+        kind_stale = (timedelta(minutes=25) if s["kind"] == "node"
+                      else stale_after)
         for m in metrics:
             hit = latest_map.get((key, m))
             if hit:
                 entry["metrics"][m] = hit
                 try:
                     age = now - datetime.fromisoformat(hit["ts"])
-                    if age < stale_after:
+                    if age < kind_stale:
                         entry["online"] = True
                 except ValueError:
                     pass
@@ -175,9 +157,9 @@ def api_history(sensor_key, metric="value"):
     })
 
 
-# Which planter maps to which soil/temp key and which bed. Each bed now has
-# its own air and light sensors on its own node, so bed A references bme0/lux0
-# and bed B references bme1/lux1.
+# Which planter maps to which soil/temp key and which bed.
+# Bed B has the SAME variety order as bed A. Air/light are garden-wide now
+# (single BME280 + BH1750), so every planter references bme0/lux0.
 PLANTERS = {
     "sanandreas_a": {"soil": "soil0", "temp": "temp0", "bed": "A",
                      "label": "San Andreas", "bed_air": "bme0", "bed_light": "lux0"},
@@ -186,34 +168,23 @@ PLANTERS = {
     "albion_a":     {"soil": "soil2", "temp": "temp2", "bed": "A",
                      "label": "Albion", "bed_air": "bme0", "bed_light": "lux0"},
     "sanandreas_b": {"soil": "soil3", "temp": "temp3", "bed": "B",
-                     "label": "San Andreas", "bed_air": "bme1", "bed_light": "lux1"},
+                     "label": "San Andreas", "bed_air": "bme0", "bed_light": "lux0"},
     "sequoia_b":    {"soil": "soil4", "temp": "temp4", "bed": "B",
-                     "label": "Sequoia", "bed_air": "bme1", "bed_light": "lux1"},
+                     "label": "Sequoia", "bed_air": "bme0", "bed_light": "lux0"},
     "albion_b":     {"soil": "soil5", "temp": "temp5", "bed": "B",
-                     "label": "Albion", "bed_air": "bme1", "bed_light": "lux1"},
+                     "label": "Albion", "bed_air": "bme0", "bed_light": "lux0"},
 }
 
 RANGE_HOURS = {"1h": 1, "6h": 6, "24h": 24, "7d": 168, "30d": 720}
 
-# Per-bed ambient. Each node carries its own BME280 and BH1750 rather than
-# sharing one garden-wide set, so the two beds can be compared directly and
-# neither is a single point of failure for the frost alert.
-BED_AMBIENT = {
-    "A": {"air": "bme0", "light": "lux0", "label": "Bed A"},
-    "B": {"air": "bme1", "light": "lux1", "label": "Bed B"},
-}
+# Garden-wide ambient sensors. Air (temp/humidity/pressure) and light are
+# effectively uniform across the two side-by-side beds, so we keep a single
+# BME280 (bme0) and BH1750 (lux0) for the whole garden rather than one per bed.
+GARDEN_AIR = "bme0"
+GARDEN_LIGHT = "lux0"
 
-# Bed A remains the primary for anything that needs one number for the whole
-# garden (pressure tendency headline, frost threshold). Falls back to bed B if
-# bed A has no recent data.
-PRIMARY_AIR = "bme0"
-PRIMARY_LIGHT = "lux0"
-
-# Kept for backwards compatibility with any caller still importing these.
-GARDEN_AIR = PRIMARY_AIR
-GARDEN_LIGHT = PRIMARY_LIGHT
-
-# Beds describe the soil sensors of each variety.
+# Beds now describe only what actually differs per bed: the soil sensors of
+# each variety. Ambient is shared garden-wide (see /api/ambient).
 BEDS = {
     "A": {"label": "Bed A",
           "varieties": [
@@ -238,42 +209,22 @@ BEDS = {
 
 @app.route("/api/ambient/<range_key>")
 def api_ambient(range_key):
-    """Ambient series for both beds.
-
-    Returns per-bed series under "beds", plus the original flat "series" and
-    "pressure_tendency" keys pointing at the primary sensor, so an existing
-    dashboard keeps working unchanged while a new one can read both.
-    """
+    """Garden-wide ambient series (air temp/humidity/pressure + light) from the
+    single shared BME280 and BH1750. Shown once for the whole garden."""
     hours = RANGE_HOURS.get(range_key, 24)
 
     def series(key, metric="value"):
         return db.history_downsampled(key, metric=metric, hours=hours)
 
-    beds = {}
-    for bed_id, a in BED_AMBIENT.items():
-        beds[bed_id] = {
-            "label": a["label"],
-            "pressure_tendency": db.pressure_tendency(a["air"]),
-            "series": {
-                "air_temp": series(a["air"], "temp"),
-                "humidity": series(a["air"], "humidity"),
-                "pressure": series(a["air"], "pressure"),
-                "light": series(a["light"]),
-            },
-        }
-
-    # Primary for single-value displays. If bed A has no pressure history yet
-    # (its node is not reporting), fall back to bed B rather than showing an
-    # empty tendency.
-    primary = "A" if beds["A"]["pressure_tendency"] else "B"
-
     return jsonify({
         "hours": hours,
-        "primary": primary,
-        "beds": beds,
-        # legacy shape, unchanged callers keep working
-        "pressure_tendency": beds[primary]["pressure_tendency"],
-        "series": beds[primary]["series"],
+        "pressure_tendency": db.pressure_tendency(GARDEN_AIR),
+        "series": {
+            "air_temp": series(GARDEN_AIR, "temp"),
+            "humidity": series(GARDEN_AIR, "humidity"),
+            "pressure": series(GARDEN_AIR, "pressure"),
+            "light": series(GARDEN_LIGHT),
+        },
     })
 
 
@@ -307,8 +258,8 @@ def api_variety(variety_id, range_key):
 @app.route("/api/planter/<planter_id>/<range_key>")
 def api_planter(planter_id, range_key):
     """All series for one planter's chart, in one request. Moisture and soil
-    temp are per-planter; air (temp/humidity/pressure) and light are that
-    bed's own values, labeled as bed context."""
+    temp are per-planter; air (temp/humidity/pressure) and light are the
+    shared bed values, labeled as bed context."""
     p = PLANTERS.get(planter_id)
     if not p:
         return jsonify({"error": "unknown planter"}), 404
