@@ -21,7 +21,9 @@
 !opengardener_alerts.py
 !opengardener_autowater.py
 !opengardener_buttons.py
+!opengardener_cal.py
 !opengardener_db.py
+!opengardener_ingest.py
 !opengardener_initdb.py
 !opengardener_log.py
 !opengardener_logger.py
