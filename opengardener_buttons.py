@@ -40,11 +40,21 @@ HOLD_SECONDS = 2.0
 
 
 class ButtonHandler:
-    def __init__(self, stop_watering=None, close_valve=None, logger=None):
+    def __init__(self, stop_watering=None, close_valve=None, logger=None,
+                 water_now=None):
         # Hooks the logger provides. Safe stubs if run standalone.
         self._stop_watering = stop_watering or (lambda: None)
         self._close_valve = close_valve or (lambda: None)
+        self._water_now = water_now or (lambda: None)
         self._log = logger or print
+
+        # Triple-press-to-water on the reset button: three quick presses within
+        # this window trigger a manual watering (using the dashboard's default
+        # duration). A 2s HOLD still reboots; a hold is one long press, a triple
+        # is three short ones, so they don't collide.
+        self._press_times = []
+        self._triple_window = 2.0
+        self._triple_count = 3
 
         self.shutdown_btn = Button(
             SHUTDOWN_PIN, pull_up=True, hold_time=HOLD_SECONDS
@@ -57,7 +67,7 @@ class ButtonHandler:
 
         self.shutdown_btn.when_pressed = self.activity.on
         self.shutdown_btn.when_released = self.activity.off
-        self.reset_btn.when_pressed = self.activity.on
+        self.reset_btn.when_pressed = self._on_reset_press
         self.reset_btn.when_released = self.activity.off
 
         self.shutdown_btn.when_held = self._on_shutdown
@@ -78,6 +88,24 @@ class ButtonHandler:
             # Never let a hook error block the power action; the NC valve
             # closes on power loss regardless.
             self._log(f"warning: pre-power safe step failed: {e}")
+
+    def _on_reset_press(self):
+        """Light the activity LED and count presses for triple-press-to-water.
+        A 2s hold is handled separately by when_held (reboot); this only counts
+        discrete presses."""
+        self.activity.on()
+        now = time.monotonic()
+        # keep only presses within the window
+        self._press_times = [t for t in self._press_times
+                             if now - t <= self._triple_window]
+        self._press_times.append(now)
+        if len(self._press_times) >= self._triple_count:
+            self._press_times = []
+            self._log("reset triple-press: triggering manual watering")
+            try:
+                self._water_now()
+            except Exception as e:
+                self._log(f"triple-press water failed: {e}")
 
     def _on_shutdown(self):
         self.activity.on()

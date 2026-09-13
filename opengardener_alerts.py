@@ -163,6 +163,57 @@ def check(logger=None, known_sensor_keys=None):
         log(f"alert: sensor_offline {'ON' if offline_active else 'clear'} "
             f"({offline})")
 
+    # --- wireless node offline / low battery ---
+    # Nodes report health metrics (battery/rssi/errors), not 'value', so the
+    # sensor_offline check above never sees them. Track them explicitly. This
+    # matters because the garden-wide BME280 + BH1750 live on the bed A node:
+    # if that node dies, air temp/humidity/pressure/light vanish and the frost
+    # alert goes silent, which is indistinguishable from "no frost". So a dead
+    # node must alarm on its own.
+    node_ages = {}     # node_key -> seconds since last check-in
+    node_batt = {}     # node_key -> latest battery voltage
+    for r in latest:
+        sk = r["sensor_key"]
+        if not sk.startswith("node_"):
+            continue
+        try:
+            age = (now - datetime.fromisoformat(r["ts"])).total_seconds()
+        except Exception:
+            continue
+        # earliest (freshest) age across this node's metrics
+        node_ages[sk] = min(age, node_ages.get(sk, age))
+        if r["metric"] == "battery" and r["value"] is not None:
+            node_batt[sk] = r["value"]
+
+    node_seen = state.get("_seen_nodes", [])
+    for sk in node_ages:
+        if sk not in node_seen:
+            node_seen.append(sk)
+    state["_seen_nodes"] = node_seen
+
+    # offline: a known node with no check-in for 45 min (~4 missed cycles)
+    nodes_offline = [k for k in node_seen
+                     if node_ages.get(k, 1e9) > 45 * 60]
+    if _fire(state, "node_offline", len(nodes_offline) > 0,
+             "Wireless node offline",
+             (f"No check-in from: {', '.join(sorted(nodes_offline))}. "
+              f"If the bed A node is down, garden air/light and the frost "
+              f"alert are also offline." if nodes_offline else ""),
+             "problem"):
+        log(f"alert: node_offline {'ON' if nodes_offline else 'clear'} "
+            f"({nodes_offline})")
+
+    # low battery: any node at or below 3.6V (approaching the LiPo knee)
+    nodes_lowbatt = [f"{k} ({v:.2f}V)" for k, v in node_batt.items()
+                     if v <= 3.6]
+    if _fire(state, "node_battery", len(nodes_lowbatt) > 0,
+             "Wireless node battery low",
+             (f"Battery low: {', '.join(sorted(nodes_lowbatt))}. Plan a swap "
+              f"or charge." if nodes_lowbatt else ""),
+             "watch"):
+        log(f"alert: node_battery {'ON' if nodes_lowbatt else 'clear'} "
+            f"({nodes_lowbatt})")
+
     # --- daily heartbeat ---
     today = date.today().isoformat()
     if state.get("_heartbeat_date") != today:

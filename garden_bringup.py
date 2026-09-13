@@ -46,10 +46,12 @@ SOIL_CHANNELS = [(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2)]
 # Fill these in from the labelling step so the CSV columns mean something.
 # Order must match physical planter numbering.
 DS18B20_ORDER = [
-    "28-000000224625",   # temp0 San Andreas (group A)
-    "28-000000ca0e41",   # temp1 Sequoia     (group A)
-    "28-000000cb11bc",   # temp2 Albion      (group A)
-    # group B to add later: temp3 Albion, temp4 Sequoia, temp5 San Andreas
+    "28-000000224625",   # temp0 San Andreas (bed A)
+    "28-000000ca0e41",   # temp1 Sequoia     (bed A)
+    "28-000000cb11bc",   # temp2 Albion      (bed A)
+    "28-000000c9da16",   # temp3 San Andreas (bed B)
+    "28-0000002311e4",   # temp4 Sequoia     (bed B)
+    "28-0000006c09b2",   # temp5 Albion      (bed B)
 ]
 
 import board
@@ -127,7 +129,8 @@ def save_cal(cal):
 
 
 def soil_percent(raw, cal, index):
-    """HW-390 is inverted: higher voltage means drier."""
+    """HW-390 is inverted: higher voltage means drier. Returns the RAW
+    (uncompensated) moisture percentage from the two-point calibration."""
     key = str(index)
     if raw is None or key not in cal:
         return None
@@ -138,6 +141,40 @@ def soil_percent(raw, cal, index):
     if abs(dry - wet) < 0.05:
         return None  # calibration points too close to be meaningful
     pct = (dry - raw) / (dry - wet) * 100.0
+    return round(max(-10.0, min(110.0, pct)), 1)
+
+
+# Capacitive soil sensors read artificially "wetter" as they heat up (the
+# dielectric measurement drifts with temperature). With a co-located soil-temp
+# probe we can subtract that drift so moisture is comparable across the day's
+# temperature swing -- which matters because auto-water triggers on a moisture
+# threshold.
+#
+# Model: corrected = raw - coeff_pct_per_F * (soil_temp_F - ref_temp_F)
+# Config lives per-sensor in the calibration file under "temp_comp":
+#   cal[index]["temp_comp"] = {"coeff": <%/F>, "ref_f": <reference temp F>}
+# Defaults to no compensation (coeff 0) so this is safe until characterized.
+
+TEMP_COMP_REF_DEFAULT = 70.0  # reference temp; compensation is zero at this temp
+
+
+def temp_comp_params(cal, index):
+    entry = cal.get(str(index), {})
+    tc = entry.get("temp_comp") or {}
+    coeff = tc.get("coeff", 0.0)
+    ref_f = tc.get("ref_f", TEMP_COMP_REF_DEFAULT)
+    return coeff, ref_f
+
+
+def soil_percent_compensated(raw, cal, index, soil_temp_f):
+    """Temperature-corrected moisture. Falls back to the raw percentage when
+    no temp is available or no compensation is configured (coeff 0)."""
+    pct = soil_percent(raw, cal, index)
+    if pct is None:
+        return None
+    coeff, ref_f = temp_comp_params(cal, index)
+    if coeff and soil_temp_f is not None:
+        pct = pct - coeff * (soil_temp_f - ref_f)
     return round(max(-10.0, min(110.0, pct)), 1)
 
 
@@ -357,6 +394,75 @@ def cmd_log():
         fh.close()
 
 
+def cmd_tempcomp(index=None, hours=48, apply=False):
+    """Estimate the temperature-compensation coefficient for soil sensors by
+    regressing stored moisture against co-located soil temp over the last
+    `hours`. Best run over a hot, dry (no-watering) window so the moisture
+    change is dominated by the thermal artifact, not real drying.
+
+    Prints the estimated %/F slope per sensor. With apply=True, writes the
+    coefficient into the calibration file so the logger starts compensating.
+    """
+    import sqlite3
+    dbp = os.path.expanduser("~/opengardener.db")
+    conn = sqlite3.connect(dbp)
+    conn.row_factory = sqlite3.Row
+    cal = load_cal()
+
+    channels = [index] if index is not None else list(range(6))
+    print(f"Temperature-compensation estimate over last {hours}h")
+    print("(run this over a hot, no-watering window for a clean estimate)\n")
+
+    for ch in channels:
+        soil_k, temp_k = f"soil{ch}", f"temp{ch}"
+        rows = conn.execute(
+            "SELECT s.ts AS ts, s.value AS moist, t.value AS temp "
+            "FROM readings s JOIN readings t "
+            "  ON s.ts = t.ts "
+            "WHERE s.sensor_key=? AND s.metric='value' "
+            "  AND t.sensor_key=? AND t.metric='value' "
+            "  AND s.value IS NOT NULL AND t.value IS NOT NULL "
+            "  AND s.ts >= datetime('now', ?, 'localtime') "
+            "ORDER BY s.ts;",
+            (soil_k, temp_k, f"-{hours} hours"),
+        ).fetchall()
+        if len(rows) < 10:
+            print(f"soil{ch}: not enough paired data ({len(rows)} points)")
+            continue
+        xs = [r["temp"] for r in rows]
+        ys = [r["moist"] for r in rows]
+        n = len(xs)
+        mx = sum(xs) / n
+        my = sum(ys) / n
+        denom = sum((x - mx) ** 2 for x in xs)
+        if denom < 1e-9:
+            print(f"soil{ch}: temp didn't vary enough to estimate")
+            continue
+        slope = sum((xs[i] - mx) * (ys[i] - my) for i in range(n)) / denom
+        # correlation for confidence
+        sy = (sum((y - my) ** 2 for y in ys)) ** 0.5
+        sx = denom ** 0.5
+        r = (sum((xs[i]-mx)*(ys[i]-my) for i in range(n)) / (sx*sy)
+             if sx*sy > 0 else 0)
+        tmin, tmax = min(xs), max(xs)
+        print(f"soil{ch}: slope {slope:+.2f} %/F  (r={r:+.2f}, "
+              f"temp {tmin:.0f}-{tmax:.0f}F, n={n})")
+        print(f"         -> moisture rises ~{slope:.2f}% per +1F of soil temp")
+        if apply:
+            cal.setdefault(str(ch), {})
+            cal[str(ch)]["temp_comp"] = {"coeff": round(slope, 3),
+                                         "ref_f": TEMP_COMP_REF_DEFAULT}
+            print(f"         applied coeff {slope:.3f} to calibration")
+    conn.close()
+    if apply:
+        save_cal(cal)
+        print("\nCalibration saved. Restart the logger to use the new "
+              "compensation.")
+    else:
+        print("\nRe-run with 'apply' to write these coefficients:")
+        print("  python3 garden_bringup.py tempcomp all apply")
+
+
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         sys.exit(__doc__)
@@ -369,5 +475,16 @@ if __name__ == "__main__":
         cmd_calibrate(sys.argv[2], sys.argv[3])
     elif cmd == "log":
         cmd_log()
+    elif cmd == "tempcomp":
+        # tempcomp [channel|all] [hours] [apply]
+        idx = None
+        apply = "apply" in sys.argv[2:]
+        hours = 48
+        for a in sys.argv[2:]:
+            if a.isdigit() and int(a) < 6:
+                idx = int(a)
+            elif a.isdigit():
+                hours = int(a)
+        cmd_tempcomp(index=idx, hours=hours, apply=apply)
     else:
         sys.exit(__doc__)

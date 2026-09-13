@@ -44,6 +44,14 @@ DEFAULTS = {
     "daily_pulse_cap": 2,
 }
 
+# Absolute hard ceiling for a MANUAL pulse. Manual watering bypasses the soak
+# lockout and daily cap by design, but never this: it's the failsafe that
+# guarantees the valve closes even if everything else fails (e.g. the process
+# hangs while the valve is open). It bounds a worst-case stuck-open flood to a
+# finite duration. Not a limit on normal use -- it's far longer than any real
+# watering -- just a catastrophe bound.
+MANUAL_FAILSAFE_MAX_S = 900.0  # 15 minutes
+
 
 class ValveController:
     def __init__(self, logger=None, use_hardware=True):
@@ -152,6 +160,37 @@ class ValveController:
         self._log(f"valve OPEN ({trigger}), max {max_s:.0f}s, "
                   f"median={median}")
         return True, "watering"
+
+    def manual_pulse(self, seconds, median=None):
+        """Manual watering: bypasses the soak lockout and daily cap (a manual
+        press is a deliberate act), using the caller's requested duration. The
+        ONLY limit is MANUAL_FAILSAFE_MAX_S, which guarantees the valve cannot
+        stay open indefinitely if the process fails mid-pulse.
+        Returns (started, reason)."""
+        try:
+            dur = float(seconds)
+        except (TypeError, ValueError):
+            dur = self._cfg("max_pulse_seconds")
+        if dur <= 0:
+            return False, "duration must be positive"
+        capped = min(dur, MANUAL_FAILSAFE_MAX_S)
+
+        with self._lock:
+            if self._open:
+                return False, "valve already open"
+            self._current_event_id = db.start_watering_event("manual", median)
+            self._pulse_started = time.monotonic()
+            self._drive_open()
+            self._pulse_timer = threading.Timer(capped, self._end_pulse,
+                                                 kwargs={"reason": "completed"})
+            self._pulse_timer.daemon = True
+            self._pulse_timer.start()
+        if capped < dur:
+            self._log(f"valve OPEN (manual), requested {dur:.0f}s capped to "
+                      f"failsafe {capped:.0f}s")
+        else:
+            self._log(f"valve OPEN (manual), {capped:.0f}s")
+        return True, f"watering {capped:.0f}s"
 
     def _end_pulse(self, reason="completed"):
         with self._lock:

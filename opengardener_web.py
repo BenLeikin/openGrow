@@ -27,11 +27,38 @@ import opengardener_db as db
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
 
+# Wireless sensor node ingest (/api/ingest). Nodes POST raw readings with a
+# Bearer token from ~/.ingest_token; the blueprint maps them to sensor keys and
+# writes via opengardener_db, so the dashboard and alerts treat wireless and
+# wired readings identically.
+from opengardener_ingest import ingest_bp
+app.register_blueprint(ingest_bp)
+
 # Soil in-band range: readings outside this are treated as a disconnected or
 # faulty sensor and excluded from the median (matches the logger's watering
 # logic). Wide enough to keep real readings, tight enough to drop the 0.06V /
 # pinned-rail failures seen during bring-up.
 SOIL_BAND = (-5.0, 105.0)
+
+# Sensor keys fed by a wireless node rather than by the wired logger. The
+# sensors table records what a sensor measures, not how the reading arrives,
+# so the kind alone cannot distinguish them -- soil3 and soil0 are both
+# kind='soil_moisture' even though one arrives every 60s over I2C and the
+# other every ~10min over WiFi. These keys get the longer staleness window.
+WIRELESS_KEYS = {
+    "soil3", "soil4", "soil5",
+    "temp3", "temp4", "temp5",
+    "bme1", "lux1",
+}
+
+# Wired sensors are read every 60s, so 10 minutes of silence means something
+# is actually wrong. Wireless nodes deep-sleep ~10min between check-ins and
+# their wake timer runs off an RC oscillator that drifts a percent or two (and
+# drifts further in the cold), so they are routinely a little late. 25 minutes
+# tolerates two missed check-ins before the tile goes grey, which stops the
+# offline flapping without hiding a genuinely dead node for long.
+STALE_WIRED = timedelta(minutes=10)
+STALE_WIRELESS = timedelta(minutes=25)
 
 
 @app.route("/")
@@ -55,7 +82,6 @@ def api_status():
 
     # build per-sensor view with online/offline
     now = datetime.now()
-    stale_after = timedelta(minutes=10)
     sensor_view = []
     for s in sensors:
         key = s["sensor_key"]
@@ -65,9 +91,21 @@ def api_status():
             "metrics": {},
             "online": False,
         }
-        # air sensors carry three metrics; others carry 'value'
-        metrics = (["temp", "humidity", "pressure"]
-                   if s["kind"] == "air" else ["value"])
+        # metric names differ by kind: air carries three, wireless nodes carry
+        # health telemetry (battery/rssi/errors), everything else a single
+        # 'value'. Nodes without this branch would look up 'value', miss, and
+        # render permanently offline.
+        if s["kind"] == "air":
+            metrics = ["temp", "humidity", "pressure"]
+        elif s["kind"] == "node":
+            metrics = ["battery", "rssi", "errors"]
+        else:
+            metrics = ["value"]
+
+        stale_after = (STALE_WIRELESS
+                       if s["kind"] == "node" or key in WIRELESS_KEYS
+                       else STALE_WIRED)
+
         for m in metrics:
             hit = latest_map.get((key, m))
             if hit:
@@ -137,8 +175,9 @@ def api_history(sensor_key, metric="value"):
     })
 
 
-# Which planter maps to which soil/temp key and which bed (for air/light).
-# Bed B is mirror-planted, so the keys cross over.
+# Which planter maps to which soil/temp key and which bed. Each bed now has
+# its own air and light sensors on its own node, so bed A references bme0/lux0
+# and bed B references bme1/lux1.
 PLANTERS = {
     "sanandreas_a": {"soil": "soil0", "temp": "temp0", "bed": "A",
                      "label": "San Andreas", "bed_air": "bme0", "bed_light": "lux0"},
@@ -146,19 +185,37 @@ PLANTERS = {
                      "label": "Sequoia", "bed_air": "bme0", "bed_light": "lux0"},
     "albion_a":     {"soil": "soil2", "temp": "temp2", "bed": "A",
                      "label": "Albion", "bed_air": "bme0", "bed_light": "lux0"},
-    "albion_b":     {"soil": "soil3", "temp": "temp3", "bed": "B",
-                     "label": "Albion", "bed_air": "bme1", "bed_light": "lux1"},
+    "sanandreas_b": {"soil": "soil3", "temp": "temp3", "bed": "B",
+                     "label": "San Andreas", "bed_air": "bme1", "bed_light": "lux1"},
     "sequoia_b":    {"soil": "soil4", "temp": "temp4", "bed": "B",
                      "label": "Sequoia", "bed_air": "bme1", "bed_light": "lux1"},
-    "sanandreas_b": {"soil": "soil5", "temp": "temp5", "bed": "B",
-                     "label": "San Andreas", "bed_air": "bme1", "bed_light": "lux1"},
+    "albion_b":     {"soil": "soil5", "temp": "temp5", "bed": "B",
+                     "label": "Albion", "bed_air": "bme1", "bed_light": "lux1"},
 }
 
 RANGE_HOURS = {"1h": 1, "6h": 6, "24h": 24, "7d": 168, "30d": 720}
 
-# Per-bed shared sensors (ambient). One air + one light sensor per bed.
+# Per-bed ambient. Each node carries its own BME280 and BH1750 rather than
+# sharing one garden-wide set, so the two beds can be compared directly and
+# neither is a single point of failure for the frost alert.
+BED_AMBIENT = {
+    "A": {"air": "bme0", "light": "lux0", "label": "Bed A"},
+    "B": {"air": "bme1", "light": "lux1", "label": "Bed B"},
+}
+
+# Bed A remains the primary for anything that needs one number for the whole
+# garden (pressure tendency headline, frost threshold). Falls back to bed B if
+# bed A has no recent data.
+PRIMARY_AIR = "bme0"
+PRIMARY_LIGHT = "lux0"
+
+# Kept for backwards compatibility with any caller still importing these.
+GARDEN_AIR = PRIMARY_AIR
+GARDEN_LIGHT = PRIMARY_LIGHT
+
+# Beds describe the soil sensors of each variety.
 BEDS = {
-    "A": {"label": "Bed A", "air": "bme0", "light": "lux0",
+    "A": {"label": "Bed A",
           "varieties": [
               {"id": "sanandreas_a", "label": "San Andreas",
                "soil": "soil0", "temp": "temp0"},
@@ -167,7 +224,7 @@ BEDS = {
               {"id": "albion_a", "label": "Albion",
                "soil": "soil2", "temp": "temp2"},
           ]},
-    "B": {"label": "Bed B", "air": "bme1", "light": "lux1",
+    "B": {"label": "Bed B",
           "varieties": [
               {"id": "sanandreas_b", "label": "San Andreas",
                "soil": "soil3", "temp": "temp3"},
@@ -179,29 +236,44 @@ BEDS = {
 }
 
 
-@app.route("/api/bed/<bed_id>/<range_key>")
-def api_bed(bed_id, range_key):
-    """One bed's shared ambient series (air temp/humidity/pressure + light),
-    fetched once per bed rather than duplicated across its planters."""
-    bed = BEDS.get(bed_id.upper())
-    if not bed:
-        return jsonify({"error": "unknown bed"}), 404
+@app.route("/api/ambient/<range_key>")
+def api_ambient(range_key):
+    """Ambient series for both beds.
+
+    Returns per-bed series under "beds", plus the original flat "series" and
+    "pressure_tendency" keys pointing at the primary sensor, so an existing
+    dashboard keeps working unchanged while a new one can read both.
+    """
     hours = RANGE_HOURS.get(range_key, 24)
 
     def series(key, metric="value"):
         return db.history_downsampled(key, metric=metric, hours=hours)
 
+    beds = {}
+    for bed_id, a in BED_AMBIENT.items():
+        beds[bed_id] = {
+            "label": a["label"],
+            "pressure_tendency": db.pressure_tendency(a["air"]),
+            "series": {
+                "air_temp": series(a["air"], "temp"),
+                "humidity": series(a["air"], "humidity"),
+                "pressure": series(a["air"], "pressure"),
+                "light": series(a["light"]),
+            },
+        }
+
+    # Primary for single-value displays. If bed A has no pressure history yet
+    # (its node is not reporting), fall back to bed B rather than showing an
+    # empty tendency.
+    primary = "A" if beds["A"]["pressure_tendency"] else "B"
+
     return jsonify({
-        "bed": bed_id.upper(),
-        "label": bed["label"],
         "hours": hours,
-        "pressure_tendency": db.pressure_tendency(bed["air"]),
-        "series": {
-            "air_temp": series(bed["air"], "temp"),
-            "humidity": series(bed["air"], "humidity"),
-            "pressure": series(bed["air"], "pressure"),
-            "light": series(bed["light"]),
-        },
+        "primary": primary,
+        "beds": beds,
+        # legacy shape, unchanged callers keep working
+        "pressure_tendency": beds[primary]["pressure_tendency"],
+        "series": beds[primary]["series"],
     })
 
 
@@ -235,8 +307,8 @@ def api_variety(variety_id, range_key):
 @app.route("/api/planter/<planter_id>/<range_key>")
 def api_planter(planter_id, range_key):
     """All series for one planter's chart, in one request. Moisture and soil
-    temp are per-planter; air (temp/humidity/pressure) and light are the
-    shared bed values, labeled as bed context."""
+    temp are per-planter; air (temp/humidity/pressure) and light are that
+    bed's own values, labeled as bed context."""
     p = PLANTERS.get(planter_id)
     if not p:
         return jsonify({"error": "unknown planter"}), 404
@@ -261,6 +333,25 @@ def api_planter(planter_id, range_key):
     })
 
 
+@app.route("/api/ai_report")
+def api_ai_report():
+    """Return the latest stored AI garden report."""
+    import opengardener_ai_report as ai
+    rep = ai.load_latest()
+    if not rep:
+        return jsonify({"available": False,
+                        "has_key": ai.have_key()})
+    return jsonify({"available": True, **rep})
+
+
+@app.route("/api/ai_report/run", methods=["POST"])
+def api_ai_report_run():
+    """Trigger a fresh AI report now. Enqueues a command so the logger (which
+    owns generation cadence) runs it, keeping API calls off the web workers."""
+    db.enqueue_command("ai_report")
+    return jsonify({"ok": True, "queued": "ai_report"})
+
+
 @app.route("/api/health")
 def api_health():
     """Cheap liveness check for monitoring."""
@@ -280,10 +371,17 @@ from flask import request
 
 @app.route("/api/water", methods=["POST"])
 def api_water():
-    """Enqueue a manual watering pulse. The logger applies the same 30s cap
-    and soak lockout as auto-water, so this can't override safety."""
-    db.enqueue_command("water_now")
-    return jsonify({"ok": True, "queued": "water_now"})
+    """Enqueue a manual watering pulse with an optional duration (seconds).
+    Manual watering bypasses the soak lockout and daily cap; only the valve
+    controller's failsafe max applies."""
+    data = request.get_json(silent=True) or {}
+    secs = data.get("seconds")
+    try:
+        secs = int(float(secs)) if secs not in (None, "") else None
+    except (ValueError, TypeError):
+        secs = None
+    db.enqueue_command("water_now", payload={"seconds": secs} if secs else None)
+    return jsonify({"ok": True, "queued": "water_now", "seconds": secs})
 
 
 @app.route("/api/config", methods=["POST"])

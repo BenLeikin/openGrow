@@ -64,8 +64,16 @@
   <section class="watering">
     <h2 class="eyebrow">Watering</h2>
     <div class="controls" id="controls">
-      <div class="control-row">
-        <button class="water-btn" id="water-btn">Water now</button>
+      <div class="waterctl">
+        <span class="schip">Median <b id="chip-median">--</b><span class="u">%</span></span>
+        <span class="schip">Today <b id="chip-pulses">0</b><span class="u">pulses</span></span>
+        <span class="schip" id="chip-lockout-wrap">Lockout <b id="chip-lockout">none</b></span>
+        <button type="button" class="water-btn" id="water-btn">Water now</button>
+        <input type="number" id="water-seconds" value="30" min="1" aria-label="Watering seconds">
+        <span class="u">s</span>
+        <span id="water-info" role="status"></span>
+      </div>
+      <div class="waterctl">
         <div class="auto-toggle">
           <label class="switch">
             <input type="checkbox" id="auto-toggle">
@@ -89,6 +97,8 @@
     <h2 class="eyebrow">Records &amp; summaries</h2>
     <div class="summary-grid" id="summary-grid"></div>
   </section>
+
+  <section class="nodes" id="nodes"></section>
 
   <section class="device">
     <h2 class="eyebrow">Device</h2>

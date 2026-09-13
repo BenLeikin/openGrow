@@ -39,24 +39,23 @@ SENSORS = [
     ("soil0", "soil_moisture", "A", "San Andreas", "ADS 0x48 ch0"),
     ("soil1", "soil_moisture", "A", "Sequoia",     "ADS 0x48 ch1"),
     ("soil2", "soil_moisture", "A", "Albion",      "ADS 0x48 ch2"),
-    # Group B soil moisture (not yet wired: ADS1115 0x49, channels 0-2)
-    # Mirrored variety order vs group A: each variety has one planter per group.
-    ("soil3", "soil_moisture", "B", "Albion",      "ADS 0x49 ch0"),
+    # Group B soil moisture (ADS1115 0x49, channels 0-2).
+    # Same variety order as group A: each variety has one planter per bed.
+    ("soil3", "soil_moisture", "B", "San Andreas", "ADS 0x49 ch0"),
     ("soil4", "soil_moisture", "B", "Sequoia",     "ADS 0x49 ch1"),
-    ("soil5", "soil_moisture", "B", "San Andreas", "ADS 0x49 ch2"),
+    ("soil5", "soil_moisture", "B", "Albion",      "ADS 0x49 ch2"),
     # Soil temperature, one probe per planter (not yet wired: DS18B20 1-Wire)
     ("temp0", "soil_temp", "A", "San Andreas", "DS18B20"),
     ("temp1", "soil_temp", "A", "Sequoia",     "DS18B20"),
     ("temp2", "soil_temp", "A", "Albion",      "DS18B20"),
-    ("temp3", "soil_temp", "B", "Albion",      "DS18B20"),
+    ("temp3", "soil_temp", "B", "San Andreas", "DS18B20"),
     ("temp4", "soil_temp", "B", "Sequoia",     "DS18B20"),
-    ("temp5", "soil_temp", "B", "San Andreas", "DS18B20"),
-    # Air temp/humidity/pressure, one per group (not yet wired: BME280)
-    ("bme0", "air", "A", "Group A air", "BME280 0x76"),
-    ("bme1", "air", "B", "Group B air", "BME280 0x77"),
-    # Light, one per group (not yet wired: BH1750)
-    ("lux0", "light", "A", "Group A light", "BH1750 0x23"),
-    ("lux1", "light", "B", "Group B light", "BH1750 0x5C"),
+    ("temp5", "soil_temp", "B", "Albion",      "DS18B20"),
+    # Garden-wide ambient: a single BME280 (air temp/humidity/pressure) and a
+    # single BH1750 (light) cover the whole garden. The two beds are side by
+    # side in the same air and light, so per-bed ambient would be redundant.
+    ("bme0", "air", "A", "Garden air", "BME280 0x76"),
+    ("lux0", "light", "A", "Garden light", "BH1750 0x23"),
 ]
 
 # Config defaults. Auto-water OFF and threshold NULL are deliberate: automation

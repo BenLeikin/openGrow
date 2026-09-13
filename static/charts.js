@@ -8,31 +8,31 @@
 // min/max/current labels, per-section crosshair.
 
 const BEDS = [
-  { id: "A", label: "Bed A", air: "bme0", light: "lux0",
+  { id: "A", label: "Bed A",
     varieties: [
       { id: "sanandreas_a", label: "San Andreas" },
       { id: "sequoia_a",    label: "Sequoia" },
       { id: "albion_a",     label: "Albion" },
     ] },
-  { id: "B", label: "Bed B", air: "bme1", light: "lux1",
+  { id: "B", label: "Bed B",
     varieties: [
-      { id: "albion_b",     label: "Albion" },
-      { id: "sequoia_b",    label: "Sequoia" },
       { id: "sanandreas_b", label: "San Andreas" },
+      { id: "sequoia_b",    label: "Sequoia" },
+      { id: "albion_b",     label: "Albion" },
     ] },
 ];
 
 // ambient (per-bed) metrics
 const AMBIENT = [
-  { key: "air_temp",  title: "Air temp",  unit: "\u00b0F",  color: "#6f5842", pct: false },
-  { key: "humidity",  title: "Humidity",  unit: "%",   color: "#3f6b3a", pct: true  },
-  { key: "light",     title: "Light",     unit: "lux", color: "#c99a2e", pct: false },
-  { key: "pressure",  title: "Pressure",  unit: "hPa", color: "#8a8a8a", pct: false },
+  { key: "air_temp",  title: "Air temp",  unit: "\u00b0F",  color: "#4a3826", pct: false },
+  { key: "humidity",  title: "Humidity",  unit: "%",   color: "#3f7d45", pct: true  },
+  { key: "light",     title: "Light",     unit: "lux", color: "#e8b04b", pct: false },
+  { key: "pressure",  title: "Pressure",  unit: "hPa", color: "#7a8a72", pct: false },
 ];
 // per-variety (own) metrics
 const VARIETY_METRICS = [
-  { key: "moisture",  title: "Moisture",  unit: "%",   color: "#9db648", pct: true  },
-  { key: "soil_temp", title: "Soil temp", unit: "\u00b0F",  color: "#b5322f", pct: false },
+  { key: "moisture",  title: "Moisture",  unit: "%",   color: "#7fb069", pct: true  },
+  { key: "soil_temp", title: "Soil temp", unit: "\u00b0F",  color: "#b1492c", pct: false },
 ];
 
 const ZONE = "America/Los_Angeles";
@@ -52,7 +52,7 @@ const crosshair = {
     ctx.moveTo(x, chartArea.top);
     ctx.lineTo(x, chartArea.bottom);
     ctx.lineWidth = 1;
-    ctx.strokeStyle = "rgba(36,48,31,0.35)";
+    ctx.strokeStyle = "rgba(39,67,46,0.35)";
     ctx.setLineDash([3, 3]);
     ctx.stroke();
     ctx.restore();
@@ -73,18 +73,22 @@ function annotationsFor(metricKey) {
   if (metricKey === "moisture" && window.ogThreshold != null) {
     ann.threshold = {
       type: "line", yMin: window.ogThreshold, yMax: window.ogThreshold,
-      borderColor: "#b5322f", borderWidth: 1.5, borderDash: [6, 4],
+      borderColor: "#b23b3b", borderWidth: 1.5, borderDash: [6, 4],
       label: { display: true, content: `water below ${window.ogThreshold}%`,
-               position: "start", font: { size: 9 }, color: "#b5322f",
-               backgroundColor: "rgba(243,239,228,0.8)" },
+               position: "start", font: { size: 9 }, color: "#b23b3b",
+               backgroundColor: "rgba(240,246,234,0.85)" },
     };
-    if (Array.isArray(window.ogWatering)) {
-      window.ogWatering.forEach((e, i) => {
-        if (!e.ts_start) return;
-        ann[`w${i}`] = { type: "line", xMin: e.ts_start, xMax: e.ts_start,
-                         borderColor: "rgba(63,107,58,0.5)", borderWidth: 1.5 };
-      });
-    }
+  }
+  // Watering event markers on BOTH moisture and soil-temp charts. On moisture
+  // you see the moisture jump; on soil temp you see the cooling dip as water
+  // hits the root zone.
+  if ((metricKey === "moisture" || metricKey === "soil_temp")
+      && Array.isArray(window.ogWatering)) {
+    window.ogWatering.forEach((e, i) => {
+      if (!e.ts_start) return;
+      ann[`w${i}`] = { type: "line", xMin: e.ts_start, xMax: e.ts_start,
+                       borderColor: "rgba(63,125,69,0.5)", borderWidth: 1.5 };
+    });
   }
   if (metricKey === "air_temp" && window.ogFrostF != null) {
     ann.frost = {
@@ -92,7 +96,7 @@ function annotationsFor(metricKey) {
       borderColor: "#3a6ea5", borderWidth: 1.5, borderDash: [6, 4],
       label: { display: true, content: `frost ${window.ogFrostF}\u00b0F`,
                position: "start", font: { size: 9 }, color: "#3a6ea5",
-               backgroundColor: "rgba(243,239,228,0.8)" },
+               backgroundColor: "rgba(240,246,234,0.85)" },
     };
   }
   return ann;
@@ -102,7 +106,7 @@ function makeChart(canvasId, chartKey, sectionId, metric) {
   const ctx = document.getElementById(canvasId).getContext("2d");
   const yScale = {
     type: "linear",
-    grid: { color: "rgba(201,192,168,0.3)" },
+    grid: { color: "rgba(216,230,205,0.55)" },
     ticks: { font: { size: 9 }, maxTicksLimit: 5 },
   };
   if (metric.pct) { yScale.min = 0; yScale.max = 100; }
@@ -134,7 +138,7 @@ function makeChart(canvasId, chartKey, sectionId, metric) {
         zoom: {
           pan: { enabled: true, mode: "x" },
           zoom: { wheel: { enabled: true }, pinch: { enabled: true },
-                  drag: { enabled: true, backgroundColor: "rgba(63,107,58,0.12)" },
+                  drag: { enabled: true, backgroundColor: "rgba(63,125,69,0.12)" },
                   mode: "x",
                   onZoomComplete: () => updateStats(chartKey, metric) },
         },
@@ -162,19 +166,31 @@ function metricCardHTML(canvasId, statId, metric, extra) {
 
 function buildLayout() {
   const grid = document.getElementById("chart-grid");
-  grid.innerHTML = BEDS.map(bed => `
+
+  // 1) one garden-wide ambient section (single air + light source)
+  const ambientSection = `
     <div class="bed-section">
       <div class="bed-section-head">
-        <span class="bed-section-name">${bed.label}</span>
-        <span class="bed-section-tag">shared environment</span>
-        <button class="zoom-reset" data-section="bed-${bed.id}">reset zoom</button>
+        <span class="bed-section-name">Garden</span>
+        <span class="bed-section-tag">shared air &amp; light</span>
+        <button class="zoom-reset" data-section="ambient">reset zoom</button>
       </div>
       <div class="ambient-grid">
         ${AMBIENT.map(m => metricCardHTML(
-            `c-bed${bed.id}-${m.key}`, `s-bed${bed.id}-${m.key}`, m,
+            `c-ambient-${m.key}`, `s-ambient-${m.key}`, m,
             m.key === "pressure"
-              ? `<div class="pressure-tendency" id="tend-bed${bed.id}">&mdash;</div>`
+              ? `<div class="pressure-tendency" id="tend-ambient">&mdash;</div>`
               : "")).join("")}
+      </div>
+    </div>`;
+
+  // 2) each bed shows only its varieties' own soil charts
+  const bedSections = BEDS.map(bed => `
+    <div class="bed-section">
+      <div class="bed-section-head">
+        <span class="bed-section-name">${bed.label}</span>
+        <span class="bed-section-tag">soil by variety</span>
+        <button class="zoom-reset" data-section="bed-${bed.id}">reset zoom</button>
       </div>
       <div class="variety-grid">
         ${bed.varieties.map(v => `
@@ -184,8 +200,9 @@ function buildLayout() {
                 `c-${v.id}-${m.key}`, `s-${v.id}-${m.key}`, m)).join("")}
           </div>`).join("")}
       </div>
-    </div>
-  `).join("");
+    </div>`).join("");
+
+  grid.innerHTML = ambientSection + bedSections;
 
   document.querySelectorAll(".zoom-reset").forEach(btn => {
     btn.addEventListener("click", () => {
@@ -215,13 +232,13 @@ function updateStats(chartKey, metric) {
   el.innerHTML = `<b>${cur}${metric.unit}</b> &middot; lo ${min} &middot; hi ${max}`;
 }
 
-async function loadBed(bed) {
+async function loadAmbient() {
   try {
-    const r = await fetch(`/api/bed/${bed.id}/${currentRange}`, { cache: "no-store" });
+    const r = await fetch(`/api/ambient/${currentRange}`, { cache: "no-store" });
     if (!r.ok) return;
     const d = await r.json();
     // pressure tendency badge on the pressure card
-    const tEl = document.getElementById(`tend-bed${bed.id}`);
+    const tEl = document.getElementById("tend-ambient");
     if (tEl) {
       const t = d.pressure_tendency;
       if (t && t.change_3h != null) {
@@ -239,7 +256,7 @@ async function loadBed(bed) {
       }
     }
     for (const m of AMBIENT) {
-      const key = `bed${bed.id}-${m.key}`;
+      const key = `ambient-${m.key}`;
       const ch = charts[key];
       if (!ch) continue;
       const raw = d.series[m.key] || [];
@@ -279,18 +296,20 @@ async function loadVariety(v) {
 
 function loadAll() {
   let i = 0;
+  setTimeout(() => loadAmbient(), i++ * 150);
   for (const bed of BEDS) {
-    setTimeout(() => loadBed(bed), i++ * 150);
     for (const v of bed.varieties) setTimeout(() => loadVariety(v), i++ * 150);
   }
 }
 
 function initCharts() {
   buildLayout();
+  // garden-wide ambient charts
+  for (const m of AMBIENT) makeChart(`c-ambient-${m.key}`,
+                                     `ambient-${m.key}`, "ambient", m);
+  // per-variety soil charts, grouped by bed
   for (const bed of BEDS) {
     const sid = `bed-${bed.id}`;
-    for (const m of AMBIENT) makeChart(`c-bed${bed.id}-${m.key}`,
-                                       `bed${bed.id}-${m.key}`, sid, m);
     for (const v of bed.varieties)
       for (const m of VARIETY_METRICS)
         makeChart(`c-${v.id}-${m.key}`, `${v.id}-${m.key}`, sid, m);

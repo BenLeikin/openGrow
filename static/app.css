@@ -262,6 +262,16 @@ main {
   color: var(--ink-soft);
   margin-top: 0.2rem;
 }
+.amb-pressure { display: flex; flex-direction: column; }
+.amb-spark {
+  width: 100%;
+  height: 30px;
+  margin-top: 0.4rem;
+  opacity: 0.85;
+}
+.amb-sub .tend-arrow { font-size: 0.85rem; vertical-align: -1px; }
+.amb-sub .tend-arrow.warn { color: var(--ripe); }
+.amb-sub .tend-arrow.good { color: var(--leaf); }
 
 /* ---------- mini forecast in masthead ---------- */
 .mini-forecast {
@@ -532,17 +542,42 @@ main {
   padding: 1rem;
   margin-bottom: 1rem;
 }
-.control-row {
-  display: flex;
-  align-items: center;
-  gap: 1.5rem;
-  flex-wrap: wrap;
+/* Watering controls: OpenSeedling-style status chips inline with the buttons,
+   adapted to openGardener's palette. */
+.waterctl {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.8rem;
+  margin-bottom: 0.9rem; padding-top: 0.7rem;
 }
+.waterctl + .waterctl { border-top: 1px solid var(--line); }
+.schip {
+  display: inline-flex; align-items: baseline; gap: 0.3rem;
+  background: rgba(255,255,255,0.4); border: 1px solid var(--line);
+  border-radius: 8px; padding: 0.3rem 0.55rem;
+  font-family: var(--font-mono); font-size: 0.74rem; color: var(--ink-soft);
+}
+.schip b { font-size: 0.9rem; color: var(--ink); font-weight: 600; }
+.schip .u { color: var(--leaf); font-size: 0.68rem; }
+.schip.chip-active { border-color: var(--ripe); }
+.schip.chip-active b { color: var(--ripe); }
+.waterctl input[type=number] {
+  width: 3.4rem; text-align: right; font-family: var(--font-mono);
+  font-size: 0.8rem; padding: 0.25rem 0.4rem; border: 1px solid var(--line);
+  border-radius: 3px; background: var(--paper); color: var(--ink);
+  -moz-appearance: textfield; appearance: textfield;
+}
+.waterctl input[type=number]::-webkit-outer-spin-button,
+.waterctl input[type=number]::-webkit-inner-spin-button {
+  -webkit-appearance: none; margin: 0;
+}
+.waterctl .u {
+  font-family: var(--font-mono); font-size: 0.72rem; color: var(--ink-soft);
+}
+#water-info { font-family: var(--font-mono); font-size: 0.72rem; color: var(--leaf); }
 .water-btn {
   font-family: var(--font-body);
   font-weight: 600;
   font-size: 0.9rem;
-  padding: 0.55rem 1.4rem;
+  padding: 0.5rem 1.3rem;
   border: none;
   border-radius: 3px;
   background: var(--leaf);
@@ -621,6 +656,100 @@ main {
 }
 .water-log .empty { color: var(--ink-soft); font-style: italic; }
 
+/* ---------- AI garden assessment ---------- */
+.ai-report {
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: rgba(255,255,255,0.4);
+  padding: 1rem 1.1rem 1.1rem;
+  margin-bottom: 2.6rem;
+}
+.ai-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.7rem;
+}
+.ai-head .eyebrow { margin: 0; }
+.ai-run-btn {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 0.3rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+.ai-run-btn:hover:not(:disabled) { background: var(--paper-2); color: var(--ink); }
+.ai-run-btn:disabled { opacity: 0.6; cursor: default; }
+.ai-summary-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  margin-bottom: 0.3rem;
+}
+.ai-badge {
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 0.15rem 0.5rem;
+  border-radius: 10px;
+  color: var(--paper);
+  flex-shrink: 0;
+}
+.ai-badge.good { background: var(--leaf); }
+.ai-badge.watch { background: var(--ripe); }
+.ai-badge.problem { background: #a3282a; }
+.ai-summary {
+  font-family: var(--font-body);
+  font-size: 1rem;
+  line-height: 1.4;
+  color: var(--ink);
+}
+.ai-meta {
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  color: var(--soil);
+  margin-bottom: 0.6rem;
+}
+.ai-chips { display: flex; gap: 0.5rem; margin-bottom: 0.8rem; flex-wrap: wrap; }
+.ai-chip {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--ink-soft);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 0.2rem 0.5rem;
+}
+.ai-chip b { color: var(--ink); }
+.ai-block { margin-top: 0.7rem; }
+.ai-block-label {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--soil);
+  margin-bottom: 0.25rem;
+}
+.ai-block ul { margin: 0; padding-left: 1.1rem; }
+.ai-block li {
+  font-family: var(--font-body);
+  font-size: 0.86rem;
+  line-height: 1.4;
+  color: var(--ink-soft);
+  margin-bottom: 0.15rem;
+}
+.ai-block li b { color: var(--ink); }
+.ai-empty {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--ink-soft);
+}
+
 /* ---------- summaries ---------- */
 .summaries { margin-bottom: 2.6rem; }
 .summary-grid {
@@ -671,6 +800,45 @@ main {
 @media (max-width: 480px) {
   .summary-card.wide { grid-column: span 1; }
 }
+
+/* ---------- wireless node health ---------- */
+.nodes { margin-bottom: 2.6rem; }
+.node-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.8rem;
+}
+.node-card {
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: rgba(255,255,255,0.4);
+  padding: 0.8rem 0.9rem;
+}
+.node-card.node-offline { opacity: 0.6; }
+.node-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+.node-name {
+  font-family: var(--font-display); font-weight: 600; font-size: 1rem;
+}
+.node-status {
+  font-family: var(--font-mono); font-size: 0.6rem; text-transform: uppercase;
+  letter-spacing: 0.08em; padding: 0.1rem 0.45rem; border-radius: 10px;
+  color: var(--paper);
+}
+.node-status.good { background: var(--leaf); }
+.node-status.bad { background: #a3282a; }
+.node-row {
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-family: var(--font-mono); font-size: 0.76rem;
+  padding: 0.2rem 0; border-top: 1px solid rgba(0,0,0,0.05);
+}
+.node-row span { color: var(--soil); }
+.node-row b { font-weight: 600; color: var(--ink); }
+.node-row b.good { color: var(--leaf); }
+.node-row b.watch { color: var(--ripe); }
+.node-row b.bad { color: #a3282a; }
 
 /* ---------- device panel ---------- */
 .device { margin-bottom: 2rem; }

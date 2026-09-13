@@ -95,37 +95,115 @@ function renderBeds(sensorMap) {
   `).join("");
 }
 
+function renderNodes(sensorMap) {
+  const panel = document.getElementById("nodes");
+  if (!panel) return;
+  const nodes = Object.values(sensorMap).filter(s => s.kind === "node");
+  if (!nodes.length) { panel.innerHTML = ""; return; }
+
+  // Single-cell LiPo bands (voltage, not a linear %; it sits ~3.7V then knees).
+  function batt(v) {
+    if (v == null) return { txt: "&mdash;", cls: "" };
+    if (v > 4.1) return { txt: `${v.toFixed(2)}V full`, cls: "good" };
+    if (v >= 3.7) return { txt: `${v.toFixed(2)}V healthy`, cls: "good" };
+    if (v >= 3.5) return { txt: `${v.toFixed(2)}V low`, cls: "watch" };
+    if (v >= 3.3) return { txt: `${v.toFixed(2)}V critical`, cls: "bad" };
+    return { txt: `${v.toFixed(2)}V cutting out`, cls: "bad" };
+  }
+  function sig(r) {
+    if (r == null) return { txt: "&mdash;", cls: "" };
+    if (r > -60) return { txt: `${r} dBm strong`, cls: "good" };
+    if (r > -75) return { txt: `${r} dBm fine`, cls: "good" };
+    if (r > -85) return { txt: `${r} dBm marginal`, cls: "watch" };
+    return { txt: `${r} dBm poor`, cls: "bad" };
+  }
+
+  panel.innerHTML = `<h2 class="eyebrow">Wireless nodes</h2>
+    <div class="node-grid">` + nodes.map(nd => {
+    const online = nd.online;
+    const v = nd.metrics.battery ? nd.metrics.battery.value : null;
+    const r = nd.metrics.rssi ? nd.metrics.rssi.value : null;
+    const e = nd.metrics.errors ? nd.metrics.errors.value : null;
+    const b = batt(v), s = sig(r);
+    const errCls = (e == null) ? "" : (e > 0 ? "watch" : "good");
+    const errTxt = (e == null) ? "&mdash;"
+                 : (e === 0 ? "all sensors ok" : `${e} sensor${e > 1 ? "s" : ""} failed`);
+    return `
+      <div class="node-card ${online ? "" : "node-offline"}">
+        <div class="node-head">
+          <span class="node-name">${nd.label}</span>
+          <span class="node-status ${online ? "good" : "bad"}">${
+            online ? "online" : "offline"}</span>
+        </div>
+        <div class="node-row"><span>Battery</span>
+          <b class="${b.cls}" title="Read through a 1M/1M divider; coarse trend, not a fuel gauge.">${b.txt}</b></div>
+        <div class="node-row"><span>Signal</span>
+          <b class="${s.cls}">${s.txt}</b></div>
+        <div class="node-row"><span>Sensors</span>
+          <b class="${errCls}">${errTxt}</b></div>
+      </div>`;
+  }).join("") + `</div>`;
+}
+
 function renderAmbient(sensorMap) {
   const amb = document.getElementById("ambient");
   const cards = [];
 
-  for (const [key, grp] of [["bme0", "A"], ["bme1", "B"]]) {
-    const s = sensorMap[key];
+  // Single garden-wide air tile (one shared BME280).
+  {
+    const s = sensorMap["bme0"];
     const online = s && s.online;
     const t = online && s.metrics.temp ? s.metrics.temp.value : null;
-    const h = online && s.metrics.humidity ? s.metrics.humidity.value : null;
-    const p = online && s.metrics.pressure ? s.metrics.pressure.value : null;
     cards.push(`
       <div class="amb">
-        <div class="amb-label">Bed ${grp} air</div>
+        <div class="amb-label">Air</div>
         <div class="amb-val ${online ? "" : "offline"}">${
           t !== null ? t.toFixed(1) : "&mdash;"
         }<span class="amb-unit">${t !== null ? "&deg;F" : ""}</span></div>
-        <div class="amb-sub">${
-          online && h !== null
-            ? `${h.toFixed(0)}% RH &middot; ${p !== null ? p.toFixed(0) + " hPa" : ""}`
-            : "offline"
-        }</div>
+        <div class="amb-sub">${online ? "temperature" : "offline"}</div>
       </div>`);
   }
 
-  for (const [key, grp] of [["lux0", "A"], ["lux1", "B"]]) {
-    const s = sensorMap[key];
+  // Garden-wide humidity tile.
+  {
+    const s = sensorMap["bme0"];
+    const online = s && s.online && s.metrics.humidity;
+    const h = online ? s.metrics.humidity.value : null;
+    cards.push(`
+      <div class="amb">
+        <div class="amb-label">Humidity</div>
+        <div class="amb-val ${online ? "" : "offline"}">${
+          h !== null ? h.toFixed(0) : "&mdash;"
+        }<span class="amb-unit">${h !== null ? "% RH" : ""}</span></div>
+        <div class="amb-sub">${online ? "relative humidity" : "offline"}</div>
+      </div>`);
+  }
+
+  // Garden-wide pressure tile with tendency + sparkline (filled async).
+  {
+    const s = sensorMap["bme0"];
+    const online = s && s.online && s.metrics.pressure;
+    const p = online ? s.metrics.pressure.value : null;
+    cards.push(`
+      <div class="amb amb-pressure">
+        <div class="amb-label">Pressure</div>
+        <div class="amb-val ${online ? "" : "offline"}">${
+          p !== null ? p.toFixed(0) : "&mdash;"
+        }<span class="amb-unit">${p !== null ? "hPa" : ""}</span></div>
+        <div class="amb-sub" id="pressure-tend">${online ? "&hellip;" : "offline"}</div>
+        <svg class="amb-spark" id="pressure-spark" viewBox="0 0 120 32"
+             preserveAspectRatio="none"></svg>
+      </div>`);
+  }
+
+  // Single garden-wide light tile (one shared BH1750).
+  {
+    const s = sensorMap["lux0"];
     const online = s && s.online && s.metrics.value;
     const lx = online ? s.metrics.value.value : null;
     cards.push(`
       <div class="amb">
-        <div class="amb-label">Bed ${grp} light</div>
+        <div class="amb-label">Light</div>
         <div class="amb-val ${online ? "" : "offline"}">${
           lx !== null ? Math.round(lx) : "&mdash;"
         }<span class="amb-unit">${lx !== null ? "lux" : ""}</span></div>
@@ -134,6 +212,52 @@ function renderAmbient(sensorMap) {
   }
 
   amb.innerHTML = cards.join("");
+  fillPressureTile();
+}
+
+// Fetch recent pressure history + tendency and draw the sparkline in the tile.
+async function fillPressureTile() {
+  const tendEl = document.getElementById("pressure-tend");
+  const spark = document.getElementById("pressure-spark");
+  if (!tendEl && !spark) return;
+  try {
+    const r = await fetch("/api/ambient/24h", { cache: "no-store" });
+    const d = await r.json();
+
+    // tendency text
+    const t = d.pressure_tendency;
+    if (tendEl && t && t.change_3h != null) {
+      const arrow = t.arrow === "down" ? "\u2198"
+                  : t.arrow === "up" ? "\u2197" : "\u2192";
+      const sign = t.change_3h > 0 ? "+" : "";
+      const cls = t.arrow === "down" && t.change_3h <= -3 ? "warn"
+                : t.arrow === "up" ? "good" : "";
+      tendEl.innerHTML =
+        `<span class="tend-arrow ${cls}">${arrow}</span> ${t.words} `
+        + `&middot; 3h ${sign}${t.change_3h}`;
+    } else if (tendEl) {
+      tendEl.textContent = "building history";
+    }
+
+    // sparkline
+    if (spark) {
+      const series = (d.series && d.series.pressure) || [];
+      const vals = series.map(p => p.value).filter(v => v != null);
+      if (vals.length >= 2) {
+        const min = Math.min(...vals), max = Math.max(...vals);
+        const range = max - min || 1;
+        const w = 120, h = 32, pad = 2;
+        const pts = vals.map((v, i) => {
+          const x = pad + (i / (vals.length - 1)) * (w - 2 * pad);
+          const y = pad + (1 - (v - min) / range) * (h - 2 * pad);
+          return `${x.toFixed(1)},${y.toFixed(1)}`;
+        }).join(" ");
+        spark.innerHTML =
+          `<polyline points="${pts}" fill="none" stroke="var(--soil)" `
+          + `stroke-width="1.5" vector-effect="non-scaling-stroke" />`;
+      }
+    }
+  } catch (e) { /* leave placeholder */ }
 }
 
 function renderMedian(median, n) {
@@ -149,17 +273,27 @@ function renderMedian(median, n) {
 }
 
 function renderWatering(w, cfg) {
-  const status = document.getElementById("water-status");
   const auto = cfg.auto_water_enabled ? "on" : "off";
   const thr = cfg.threshold_pct === null ? "unset" : cfg.threshold_pct + "%";
-  const lockout = w.lockout_remaining_s > 0
-    ? `locked ${Math.floor(w.lockout_remaining_s / 60)}m ${w.lockout_remaining_s % 60}s`
-    : "ready";
-  status.innerHTML = `
-    Auto-water <b>${auto}</b> &middot; threshold <b>${thr}</b>
-    &middot; pulses today <b>${w.pulses_today}/${w.daily_cap ?? "?"}</b>
-    &middot; ${lockout}
-    &middot; last <b>${w.last ? w.last.replace("T", " ") : "never"}</b>`;
+  const locked = w.lockout_remaining_s > 0;
+  const lockout = locked
+    ? `${Math.floor(w.lockout_remaining_s / 60)}m ${w.lockout_remaining_s % 60}s`
+    : "none";
+
+  // Inline status chips (OpenSeedling-style: state sits next to the controls).
+  const chMed = document.getElementById("chip-median");
+  if (chMed) chMed.textContent =
+    (window.ogMedian != null ? Math.round(window.ogMedian) : "--");
+  const chPul = document.getElementById("chip-pulses");
+  if (chPul) chPul.textContent = `${w.pulses_today}/${w.daily_cap ?? "?"}`;
+  const chLock = document.getElementById("chip-lockout");
+  if (chLock) chLock.textContent = lockout;
+  const lockWrap = document.getElementById("chip-lockout-wrap");
+  if (lockWrap) lockWrap.classList.toggle("chip-active", locked);
+
+  const status = document.getElementById("water-status");
+  if (status) status.innerHTML =
+    `last <b>${w.last ? w.last.replace("T", " ") : "never"}</b>`;
 
   // sync controls to current config (without clobbering focused inputs)
   const autoCb = document.getElementById("auto-toggle");
@@ -226,9 +360,17 @@ function initControls() {
       btn.textContent = "Water now";
       btn.classList.remove("confirm");
       try {
-        const r = await fetch("/api/water", { method: "POST" });
+        const secsEl = document.getElementById("water-seconds");
+        const secs = secsEl ? parseInt(secsEl.value, 10) || 30 : 30;
+        const r = await fetch("/api/water", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ seconds: secs }),
+        });
         const d = await r.json();
-        note(d.ok ? "Watering queued. The logger will pulse within a minute, subject to limits." : "Failed to queue.", d.ok ? "ok" : "warn");
+        note(d.ok
+          ? `Watering ${secs}s, starting within a couple seconds.`
+          : "Failed to send.", d.ok ? "ok" : "warn");
       } catch (e) {
         note("Request failed.", "warn");
       }
@@ -453,6 +595,107 @@ window.addEventListener("load", () => {
   setInterval(loadSummaries, 5 * 60 * 1000);
 });
 
+// ---- AI garden assessment ----
+function healthClass(h) {
+  return h === "good" ? "good" : h === "problem" ? "problem" : "watch";
+}
+
+function renderAiReport(d) {
+  const body = document.getElementById("ai-body");
+  if (!body) return;
+
+  if (!d || !d.available) {
+    body.innerHTML = d && d.has_key === false
+      ? `<p class="ai-empty">No API key configured on the Pi. Add one to enable the garden assessment.</p>`
+      : `<p class="ai-empty">No assessment yet. Tap "Generate now" for one.</p>`;
+    return;
+  }
+  if (!d.ok) {
+    body.innerHTML = `<p class="ai-empty">Last attempt failed: ${d.error || "unknown error"}</p>`;
+    return;
+  }
+  const rep = d.report || {};
+  const when = d.ts ? new Date(d.ts * 1000).toLocaleString("en-US", {
+    timeZone: "America/Los_Angeles", month: "short", day: "numeric",
+    hour: "2-digit", minute: "2-digit" }) : "";
+  const health = rep.overall_health || "watch";
+
+  let html = `
+    <div class="ai-summary-row">
+      <span class="ai-badge ${healthClass(health)}">${health}</span>
+      <span class="ai-summary">${rep.summary || ""}</span>
+    </div>
+    <div class="ai-meta">assessed ${when} PT`;
+  if (rep.confidence) html += ` &middot; confidence ${rep.confidence}`;
+  html += `</div>`;
+
+  // water + heat quick reads
+  const chips = [];
+  if (rep.water && rep.water.assessment)
+    chips.push(`<span class="ai-chip">water: <b>${rep.water.assessment.replace("_", " ")}</b></span>`);
+  if (rep.heat && rep.heat.assessment)
+    chips.push(`<span class="ai-chip">heat: <b>${rep.heat.assessment}</b></span>`);
+  if (chips.length) html += `<div class="ai-chips">${chips.join("")}</div>`;
+
+  // concerns
+  if (rep.concerns && rep.concerns.length) {
+    html += `<div class="ai-block"><div class="ai-block-label">Concerns</div><ul>`
+      + rep.concerns.map(c => `<li>${c}</li>`).join("") + `</ul></div>`;
+  }
+  // recommendations
+  if (rep.recommendations && rep.recommendations.length) {
+    html += `<div class="ai-block"><div class="ai-block-label">Recommendations</div><ul>`
+      + rep.recommendations.map(r => `<li>${r}</li>`).join("") + `</ul></div>`;
+  }
+  // notable per-variety
+  if (rep.per_variety && rep.per_variety.length) {
+    html += `<div class="ai-block"><div class="ai-block-label">Notable planters</div><ul>`
+      + rep.per_variety.map(p => `<li><b>${p.planter}:</b> ${p.note}</li>`).join("")
+      + `</ul></div>`;
+  }
+  body.innerHTML = html;
+}
+
+async function loadAiReport() {
+  try {
+    const r = await fetch("/api/ai_report", { cache: "no-store" });
+    renderAiReport(await r.json());
+  } catch (e) {
+    const body = document.getElementById("ai-body");
+    if (body) body.innerHTML = `<p class="ai-empty">Could not load assessment.</p>`;
+  }
+}
+
+function initAiReport() {
+  const btn = document.getElementById("ai-run-btn");
+  if (btn) {
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      btn.textContent = "Generating\u2026";
+      try {
+        await fetch("/api/ai_report/run", { method: "POST" });
+        // the logger generates it; poll a few times for the fresh result
+        let tries = 0;
+        const poll = setInterval(async () => {
+          tries++;
+          await loadAiReport();
+          if (tries >= 12) {  // ~1 min
+            clearInterval(poll);
+            btn.disabled = false;
+            btn.textContent = "Generate now";
+          }
+        }, 5000);
+      } catch (e) {
+        btn.disabled = false;
+        btn.textContent = "Generate now";
+      }
+    });
+  }
+  loadAiReport();
+  setInterval(loadAiReport, 10 * 60 * 1000);
+}
+window.addEventListener("load", initAiReport);
+
 async function tick() {
   const dot = document.getElementById("live-dot");
   try {
@@ -465,12 +708,14 @@ async function tick() {
 
     // Expose threshold and watering events for the chart layer to draw.
     window.ogThreshold = d.config.threshold_pct;
+    window.ogMedian = d.median_soil;
     window.ogFrostF = d.config.frost_alert_f ? Number(d.config.frost_alert_f) : null;
     window.ogWatering = d.watering.recent || [];
 
     renderMedian(d.median_soil, d.median_n);
     renderBeds(sensorMap);
     renderAmbient(sensorMap);
+    renderNodes(sensorMap);
     renderWatering(d.watering, d.config);
 
     document.getElementById("stamp").textContent =
